@@ -1,0 +1,11 @@
+# RANDOM FOREST (using ranger)
+#library(caret);library(e1071);library(ranger);library(dplyr)
+
+rf_fit <- train(as.factor(old) ~ ., 
+                data = abalone_train, 
+                method = "ranger")
+
+# By default, the train function without any arguments re-runs the model 
+# over 25 bootstrap samples and across 3 options of the tuning parameter 
+# here the tuning parameter for ranger is mtry; the number of randomly 
+# selected predictors at each cut in the tree.
