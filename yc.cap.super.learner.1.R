@@ -17,9 +17,9 @@ if (!require('RcppArmadillo')) install.packages('RcppArmadillo'); library(RcppAr
 #------------------
 # DATA PREPARATION
 #------------------
-df <- read.csv('data/dataimp.boruta.csv') # data set with Boruta selected fetures
+df <- read.csv('data/capstone.dataimp.csv') # data set with Boruta selected fetures
 df <- df[-1]
-
+str(df)
 #df.smote <- SMOTE(readmitted~., df, perc.over=10, perc.under=1100)
 
 set.seed(0-0)
@@ -62,7 +62,7 @@ names(x.test)
 # low or zero coefficients or compatibility issues in previous test runs.
 
 set.seed(1-1)
-ensem <-  SuperLearner( Y=y.train, X=x.train, 
+ensem <-  SuperLearner( Y=y.train, X=x.train,
                         family='binomial', verbose=TRUE,
                         SL.library=c( #'SL.kernelKnn','SL.nnet',
                           'SL.gbm','SL.xgboost',#'SL.glmnet',
@@ -99,7 +99,7 @@ head(predictions$library.predict)
 predictiions.converted <- ifelse(predictions$pred>=0.5,1,0)
 
 # Construct a confusion matrix
-cm <- confusionMatrix(factor(predictiions.converted), factor(y.test)) 
+cm <- confusionMatrix(factor(predictiions.converted), factor(y.test))
 cm
 
 
