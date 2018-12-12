@@ -85,15 +85,11 @@ predictiions.converted <- ifelse(predictions$pred>=0.5,1,0)
 cm <- confusionMatrix(factor(predictiions.converted), factor(y.test)) 
 cm
 
-mean((y.train-ensem.cv$SL.predict)^2) #CV risk for SuperLearner
+#mean((y.train-ensem.cv$SL.predict)^2) #CV risk for SuperLearner
 
 
+#ensem.cv$cvRisk[which.min(ensem.cv$cvRisk)]
 
-
-
-
-ensem.cv$cvRisk[which.min(ensem.cv$cvRisk)]
-
-SL.rf.better <- function(...) {SL.randomForest(..., ntree = 3000)}
-SL.ipredbagg.tune <- function(...){SL.ipredbagg(..., nbagg=250)}
-SL.xgboost.tune <- function(...){SL.xgboost(..., ntree=250, max_depth=4, shrinkage=0.01)}
+#SL.rf.better <- function(...) {SL.randomForest(..., ntree = 3000)}
+#SL.ipredbagg.tune <- function(...){SL.ipredbagg(..., nbagg=250)}
+#SL.xgboost.tune <- function(...){SL.xgboost(..., ntree=250, max_depth=4, shrinkage=0.01)}

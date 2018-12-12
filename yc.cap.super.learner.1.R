@@ -105,17 +105,3 @@ cm
 
 mean((y.train-ensem.cv$SL.predict)^2) #CV risk for SuperLearner
 
-
-# Hyperparameter optimization --
-# Fit elastic net with 5 different alphas:
-# 0 (Ridege), 0.2, 0.4, 0.6, 0.8, 1.0 (Lasso).
-enet = create.Learner(
-  "SL.glmnet", detailed_names=TRUE,
-  tune=list( alpha=seq(0,1,length.out=5) ))
-
-sl_lib2 = c("SL.mean", "SL.lm", enet$names)
-
-enet_sl = SuperLearner(Y=Boston$medv, X=Boston[, -14], SL.library=sl_lib2)
-
-# Identify the best-performing alpha value or use the automatic ensemble.
-enet_sl
