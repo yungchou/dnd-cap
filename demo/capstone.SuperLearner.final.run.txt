@@ -1,0 +1,31 @@
+> ensem; saveRDS('ensem','capstone.ensem.rds')
+
+Call:  
+SuperLearner(Y = y.train, X = x.train, family = "binomial", SL.library = c("SL.gbm", "SL.xgboost",  
+    "SL.ranger"), verbose = TRUE) 
+
+
+                    Risk      Coef
+SL.gbm_All     0.1710644 0.0000000
+SL.xgboost_All 0.1594123 0.5422356
+SL.ranger_All  0.1627868 0.4577644
+
+
+
+> summary(ensem.cv); saveRDS('ensem','capstone.ensem.cv.rds')
+
+Call:  
+CV.SuperLearner(Y = y.train, X = x.train, V = 5, family = "binomial", SL.library = c("SL.gbm",  
+    "SL.xgboost", "SL.ranger"), verbose = TRUE) 
+
+Risk is based on: Mean Squared Error
+
+All risk estimates are based on V =  5 
+
+      Algorithm     Ave        se     Min     Max
+  Super Learner 0.15722 0.0014906 0.15346 0.16426
+    Discrete SL 0.16184 0.0017350 0.15888 0.16990
+     SL.gbm_All 0.17145 0.0012917 0.16670 0.17788
+ SL.xgboost_All 0.16184 0.0017350 0.15888 0.16990
+  SL.ranger_All 0.16418 0.0013589 0.16010 0.16978
+> 

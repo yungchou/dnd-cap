@@ -1,0 +1,121 @@
+if (!require('caret'  )) install.packages('caret'  ); library(caret  )
+#if (!require('mlbench')) install.packages('mlbench'); library(mlbench)
+if (!require('ranger' )) install.packages('ranger' ); library(ranger )
+if (!require('DMwR'   )) install.packages('DMwR'   ); library(DMwR   )
+if (!require('SuperLearner')) install.packages('SuperLearner'); library(SuperLearner)
+if (!require('ggplot2')) install.packages('ggplot2'); library(ggplot2)
+if (!require('kernlab')) install.packages('kernlab'); library(kernlab)
+if (!require('arm')) install.packages('arm'); library(arm)
+if (!require('ipred')) install.packages('ipred'); library(ipred)
+if (!require('gbm')) install.packages('gbm'); library(gbm)
+if (!require('xgboost')) install.packages('xgboost'); library(xgboost)
+if (!require('KernelKnn')) install.packages('KernelKnn'); library(KernelKnn)
+if (!require('RcppArmadillo')) install.packages('RcppArmadillo'); library(RcppArmadillo)
+
+#listWrappers()   # Available models in SuperLearner
+
+#------------------
+# DATA PREPARATION
+#------------------
+df <- read.csv('data/dataimp.boruta.csv') # data set with Boruta selected fetures
+df <- df[-1]
+
+#df.smote <- SMOTE(readmitted~., df, perc.over=10, perc.under=1100)
+
+set.seed(0-0)
+
+df$readmitted <- as.factor(df$readmitted)
+table(df$readmitted)
+df.smote <- SMOTE(readmitted~., df, perc.over=100, perc.under=220)
+table(df.smote$readmitted)
+
+par(mfrow=c(1,2))
+plot(df['readmitted'],las=1,col='lightblue',xlab='df$readmitted',main='Original')
+plot(df.smote['readmitted'],las=1,col='lightgreen',xlab='df.smote$readmitted',main='SMOTE')
+par(mfrow=c(1,1))
+
+#df.smote$readmitted <- ifelse(df.smote$readmitted=='yes',1,0)
+df.smote$readmitted <- as.numeric(factor(df.smote$readmitted))-1
+tail(df.smote$readmitted)
+
+part <- sample(2, nrow(df.smote), replace=TRUE, prob=c(0.7,0.3))
+
+train <- df.smote[part==1,]
+test  <- df.smote[part==2,]
+
+names(train) # Check the index of 'readmitted'
+x.train <- train[,-22]
+y.train <- train[, 22]
+
+names(x.train)
+
+x.test  <- test[,-22]
+y.test  <- test[, 22]
+
+names(x.test)
+
+#-----------------------------
+# ENSEMBLE & CROSS-VALIDATION
+#-----------------------------
+
+# For diabetes data set, the following algorithms commented out if
+# low or zero coefficients or compatibility issues in previous test runs.
+
+set.seed(1-1)
+ensem <-  SuperLearner( Y=y.train, X=x.train, 
+                        family='binomial', verbose=TRUE,
+                        SL.library=c( #'SL.kernelKnn','SL.nnet',
+                          'SL.gbm','SL.xgboost',#'SL.glmnet',
+                          #'SL.ipredbagg','SL.ksvm',
+                          'SL.ranger'
+                          ))
+
+ensem; saveRDS('ensem','capstone.ensem.rds')
+
+ensem.cv <-  CV.SuperLearner( Y=y.train, X=x.train,
+                           family='binomial', verbose=TRUE, V=5,
+                           SL.library=c( #'SL.kernelKnn','SL.nnet',
+                             'SL.gbm','SL.xgboost',#'SL.glmnet',
+                             #'SL.ipredbagg','SL.ksvm',
+                             'SL.ranger'
+                           ))
+
+summary(ensem.cv); saveRDS('ensem','capstone.ensem.cv.rds')
+
+plot(ensem.cv) + theme_minimal()
+
+#------------
+# PREDICTION
+#------------
+predictions <- predict.SuperLearner(ensem, x.test, onlySL=TRUE)
+
+summary(predictions$library.predict)
+
+head(predictions$pred)
+
+head(predictions$library.predict)
+
+# Converting probabilities into classification
+predictiions.converted <- ifelse(predictions$pred>=0.5,1,0)
+
+# Construct a confusion matrix
+cm <- confusionMatrix(factor(predictiions.converted), factor(y.test)) 
+cm
+
+
+mean((y.train-ensem.cv$SL.predict)^2) #CV risk for SuperLearner
+
+
+# Hyperparameter optimization --
+# Fit elastic net with 5 different alphas:
+# 0 (Ridege), 0.2, 0.4, 0.6, 0.8, 1.0 (Lasso).
+enet = create.Learner(
+  "SL.glmnet", detailed_names=TRUE,
+  tune=list( alpha=seq(0,1,length.out=5) ))
+
+sl_lib2 = c("SL.mean", "SL.lm", enet$names)
+
+enet_sl = SuperLearner(Y=Boston$medv, X=Boston[, -14], SL.library=sl_lib2)
+
+# Identify the best-performing alpha value or use the automatic ensemble.
+enet_sl

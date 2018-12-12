@@ -1,0 +1,730 @@
+---
+title: "Data Preparation of Diabetes Dataset"
+author: "yung chou"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+if (!require('knitr')) install.packages('knitr'); library(knitr)
+if (!require('psych')) install.packages('psych'); library(psych)
+if (!require('dplyr')) install.packages('dplyr'); library(dplyr)
+if (!require('corrplot')) install.packages('corrplot'); library(corrplot)
+if (!require('caret')) install.packages('caret'); library(caret)
+if (!require('mice')) install.packages('mice'); library(mice)
+if (!require('stats')) install.packages('stats'); library(stats)
+
+demo <- TRUE
+
+if(demo){
+  if (!require('EBImage')) install.packages("BiocManager");BiocManager::install("EBImage");library(EBImage)  
+}
+
+```
+
+## Overview
+
+This is the data preparation effort for developing a Machine Learning model for predicting hospital readmission within 30 days. 
+
+Hospital readmission is a real-world problem and an on-going topic for improving health care quality and a patient's experience, while ensuring cost-effectiveness. Information of [Hospital Readmissions Reduction Program (HRRP)](https://www.cms.gov/medicare/medicare-fee-for-service-payment/acuteinpatientpps/readmissions-reduction-program.html) is publicly available in CMS, Center for Medicare and Medicaid Services, web site.
+
+The dataset, [Diabetes 130-US hospitals for years 1999-2008 Data Set](https://archive.ics.uci.edu/ml/datasets/diabetes+130-us+hospitals+for+years+1999-2008), was downloaded from [UCI Machine Learning Repository](https://archive.ics.uci.edu/ml/index.php). It represents 10 years (1999-2008) of clinical care at 130 US hospitals and integrated delivery networks with 100,000 observations and 50 features representing patient and hospital outcomes.
+
+The developed Machine Learning model is based on R and employed the package, [SuperLearer](https://cran.r-project.org/web/packages/SuperLearner/index.html), with ensemble learning to optimize the results. For computation needs, most of the ensemble learning ran on a [Microsoft Azure](https://azure.microsoft.com/en-us/) public cloud an E16 Virtual Machine with 14 vcpus and 128 GB RAM, as shown below. For a training set of 10,000 observations and 21 predictors, in general the model took about 2 to 3 hours to train and more than 6 hours to carry out 10-fold cross-validation with three algorithms. The demand for computing resources was significant.
+
+![Virtual Machine Hardware Configuration](capstone.azure.vm.jpeg)
+
+Some variables were with high missingness and unusable. A few considered as missing at random ([MAR](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4121561/)) were imputed with values using [Multivariate Imputation by Chained Equations (mice) package](https://cran.r-project.org/web/packages/mice/index.html).
+
+The feature selection was largely based on the output from [Boruta](https://yungchou.wordpress.com/2018/11/19/feature-selection-with-help-from-boruta/). In several test runs, Boruta took about 30 minutes and was able to confirm all variables, 21 important and 5 unimportant, within 100 iterations initially set. 
+
+## Dataset
+
+The dataset was first downloaded from the above link and imported into [RStudio](https://www.rstudio.com/).
+
+- [Diabetes 130-US hospitals for years 1999-2008 Data Set](https://archive.ics.uci.edu/ml/datasets/diabetes+130-us+hospitals+for+years+1999-2008)
+- Research article: [Impact of HbA1c Measurement on Hospital Readmission Rates: Analysis of 70,000 Clinical Database Patient Records](https://www.hindawi.com/journals/bmri/2014/781670/)
+
+
+
+```{r}
+
+# Check first {r} block, if this is a demo.
+
+#----------
+# DATA SET
+#----------
+# Dropping encounter_id upon importing
+data<- read.csv('data/diabetic_data.csv', header=TRUE)
+#ref  <- read.csv('dataset_diabetes/IDs_mapping.csv'  , header=TRUE)
+
+cat('Diabetes data set imported (',nrow(data),
+    ' observations with ', ncol(data),' variables )')
+
+```
+
+Removed the ID field, encounter_id.
+
+```{r }
+
+# Dropping ID fields
+data <-data[-1] # here 49 variables
+cat('Removed encounter_id. The data set now has ',ncol(data), ' variables.')
+
+str(data) # 101766 obs. of  50 variables
+
+```
+
+## Missingness
+
+In the data set, there were many variables with '?' as the value. Apparently, it was an indication of a missing value which was therefore replaced with NA.
+
+```{r}
+#-------------
+# MISSINGNESS
+#-------------
+# missing values were stored as '?'
+cat('Missing values indicated by "?" = ',sum(data=='?'),'\n')
+cat('Replacing ', sum(data=='?'), ' values stored as "?" with NA.')
+data[data=='?'] <- NA
+cat('Total NA count = ',sum(is.na(data)))
+
+```
+
+Examining missingness of the dataset revealed disproportional amount of data were missing in variables, particularly **weight**, **medical_specialty**, and **payer_code**.
+
+```{r}
+
+if(demo){
+  
+  img = readImage('demo/capstone.missingness.keeper.jpeg');
+  display(img, method = "raster")
+  
+}
+
+if(!demo){
+  
+    if (!require('naniar')) install.packages('naniar'); library('naniar');
+    gg_miss_upset(data)
+  
+}
+
+```
+
+### Percentage of Values Missing
+
+- Each of the aforementioned variables had a high percentage of missing values, which made them essentially unusable. In the following histogram, the red line indicated a set threshold of 30% and those with missing values above 30% were removed from consideration at this point.
+
+```{r }
+#------------------------------
+# Percentage of values missing
+#------------------------------
+q <- sapply(colnames(data), function(x){
+  round(sum(is.na(data[x]))*100/nrow(data[x]),2)
+  })
+# Variables with percentage of missing values > 0
+q[q>0]
+
+barplot( log(q[q>0]+1),
+         las=2, col=grey.colors(10), cex.names = 0.8,
+         main='Missingness', ylab='log(% missing)', xlab='')
+abline(h=log(30+1), col='red',lwd=2)
+
+```
+
+
+```{r}
+#-----------------------------------------------------
+# Keeping variables with less than 30% values missing
+#-----------------------------------------------------
+cat('Removing the three variables: ', names(q[q>30]))
+data <- data[ names(data) %in% names(q[q<30]) ] # here 45 variables
+
+cat('At this time, the data set has ',nrow(data),' observations with ', ncol(data),' variables.')
+# Remaining variables with missing values: race, diag_1, diag_2, diag_3
+
+```
+
+## Near Zero-Variance Variables
+
+Two variables, examide and citoglipton, had only one level with no missing value. Therefore these two variables were with zero-variance, and not informative and would contribute little for predicting an outcome. All other near zero-variance (nzv) variables were also removed from the dataset.
+
+Although some may argue that zero-variance variables may in fact have some influence, in the diabetes dataset a few factor variables with multiple levels were nzv. If to keep them, it would later generate considerable number of dummy variables and increase the computation complexities and resource requirements. Consequently, removed all nzv variables.
+
+```{r nzv}
+#------------------------------
+# NEAR ZERO-VARIANCE VARIABLES
+#------------------------------
+# The following two factor variables have only one level with no missing value.
+# Therefore these two variables have zero-variance, are not influential on
+# predicting readmission and removed.
+
+nzv <- names(data[ nearZeroVar(data,saveMetrics=FALSE) ])
+cat('caret reports ',length(nzv),'near zero-variables as the following:\n\n');nzv
+
+if(length(nzv)>0){data <- data[, !names(data)%in%nzv]}
+
+cat('The listed, ',length(nzv),' near-zero variables have been removed.\n\n', 'At this time, the data set has ',nrow(data),' observations with ', ncol(data),' variables remaining.')
+
+```
+
+## Multiple Encounters of a Patient
+
+The data set contained multiple rows with the same patient_nbr, i.e. a patient number. It was unclear if these encounters, i.e. visits, were independent. There was a risk that these multiple visits of a patient might be related, hence introduce bias since some encounters of a patient then become correlated. To eliminate this risk, kept one and only one encounter which had the maximum time_in_hospital, assuming time_in_hospital was characteristic for readmission and would present sufficient variance in training data.
+
+```{r}
+#-----------------------------
+# MULRIPLE-ENCOUNTER PATIENTS
+#-----------------------------
+cat('patient_nbr with multiple encounters = ',
+    length(data$patient_nbr[duplicated(data$patient_nbr)]),'\n' )
+
+cat('Before eliminating multiple encounters of a patient, total ',
+    nrow(data), ' observations\n')
+
+data <- data %>% arrange(desc(time_in_hospital))
+data <- data[!duplicated(data$patient_nbr),]
+
+cat('After eliminating multiple encounters of a patient, total ',
+    nrow(data), ' observations\n')
+
+# Now there should be no more multiple encounters of a patient.
+cat('Multiple encounters of a patient now = ',
+    length(data$patient_nbr[duplicated(data$patient_nbr)]),'\n' )
+
+```
+
+Once having processed multiple-encounter of a patient, removed the patient ID from the dataset.
+
+```{r}
+
+#--------------------
+# DROPPING ID FIELDS
+#--------------------
+# Need to check names(data) to assure correct indices
+cat('Dropping the ID fields, ', names(data[1]),' and ', names(data[2]))
+data <- data[-c(1,2)]
+
+cat('At this time, the data set has ',nrow(data),' observations with ', ncol(data),' variables.')
+# 27 variables
+
+```
+
+## Categorical Variables
+
+Now moving to prepare categorical variables. For feature description, reference [IDs_mapping.csv](https://archive.ics.uci.edu/ml/datasets/diabetes+130-us+hospitals+for+years+1999-2008) from the original dataset downloaded form UCI Machine Learning repository.
+
+- The three: diag_1, diag_2, and diag_3, each had some 700 levels. Which would require around 900 dummy variables and the computation needs would be expensive to manage. To consolidate the levels, followed Table 2 of the research report, [Impact of HbA1c Measurement on Hospital Readmission Rates: Analysis of 70,000 Clinical Database Patient Records](https://www.hindawi.com/journals/bmri/2014/781670/) and converted the levels of all three variables into 9 categories. The programming part was lengthy and tedious. It however reduced the complexities to a manageable level.
+
+- Consolidated levels of other factor variables were based on analysis of the dataset, general experience on receiving health care services and some common senses for possibly delivering most variance in the Machine Learning model.
+
+### Gender
+
+- Eliminated the 'unknown' type.
+
+```{r}
+#-------------------------------------------
+# CONSOLIDATING LEVELS OF A FACTOR VARIABLE
+#-------------------------------------------
+# Gender
+data$gender <- factor(ifelse(data$gender=='Female','Female','Male'))
+cat('"gender" is now ', class(data$gender) ,' with the levels: ',levels(data$gender))
+
+```
+
+### Age
+
+Consolidated from a 10-level factor to 3 and numeric as:
+
+- [0-10), [10-20), [20-30), [30-40), [40-50) , [50-60) as 1
+- [60-70), [70-80) as 1.5
+- [80-90), [90-100) as 2
+
+```{r}
+# Age
+data$age <- as.character(data$age)
+data$age[data$age %in% c('[0-10)','[10-20)','[20-30)','[30-40)','[40-50)','[50-60)')]  <- '1'
+data$age[data$age %in% c('[60-70)','[70-80)')] <- '1.5'
+data$age[data$age %in% c('[80-90)','[90-100)')] <- '2'
+data$age <- as.numeric(as.character(data$age))
+
+cat('Considering those older than 60 are twice more likely to be readmitted.\n')
+cat('"age" is now ', class(data$age) ,' with the unique values: ',unique(data$age),
+    '\n\twhere age<60 is assigned as 1, 60<=age<80 1.5, and age>80 as 2')
+
+```
+
+### Admission Type
+
+- Changed from 8 levels to 2.
+
+```{r}
+# Admission Types
+#unique(data$admission_type_id)
+data$admission_type_id <- factor(ifelse(data$admission_type_id%in%c(5,6,8),'u','k'))
+cat('"admission_type_id" is now ',class(data$admission_type_id),
+    ' with levels: ', levels(data$admission_type_id),
+    '\n\twhere u: unknown, k: known\n')
+```
+
+### Admission Source
+
+- Consolidated from 25 levels to 5.
+
+```{r}
+# Admission Sources
+#unique(data$admission_source_id)
+data$admission_source_id <- factor(ifelse(data$admission_source_id%in%c(1,2,3,19),'r',
+  (ifelse(data$admission_source_id%in%c(4,5,6,10,18,22,25,26),'t',
+    (ifelse(data$admission_source_id%in%c(9,15,17,20,21),'u',
+      (ifelse(data$admission_source_id%in%c(7,8),'o',
+        (ifelse(data$admission_source_id%in%c(11,12,13,14,23,24),'b',NA))))))))))
+cat('"admission_source_id" is now ',class(data$admission_source_id),
+    ' with levels: ', levels(data$admission_source_id),
+    '\n\twhere r: referral, t: transfer, u: unknown, o: other, b: birth')
+```
+
+### Disposition Ids
+
+- Removed disposition code associated with 'Expired' since not relevant to readmission.
+- Consolidated form 25 levels to 5.
+
+```{r}
+
+# Disposition Ids
+# Removing disposition code as 'Expired', since not relevant to readmission
+cat('Before removing "discharge_disposition_id" of 11,19,20,21, \nthere were ',nrow(data),
+    ' observations with unique ids: \n',unique(data$discharge_disposition_id))
+
+data <- data[!(data$discharge_disposition_id %in% c(11,19,20,21)),]
+
+cat('After removing "discharge_disposition_id" of 11,19,20,21,\nthere were ',nrow(data),
+    ' observations with unique ids: \n',unique(data$discharge_disposition_id))
+
+#unique(data$discharge_disposition_id)
+data$discharge_disposition_id <- factor(
+  ifelse(data$discharge_disposition_id%in%c(1,2,3,4,5,6,7,8,22,23,24),'d',
+    (ifelse(data$discharge_disposition_id%in%c(9,10,12,10),'o',
+        (ifelse(data$discharge_disposition_id%in%c(13,14),'h',
+            (ifelse(data$discharge_disposition_id%in%c(18,25),'u',NA))))))) )
+cat('"discharge_disposition_id)" is now ',class(data$discharge_disposition_id),
+    ' with levels: ', levels(data$discharge_disposition_id),
+    '\n\twhere d: discharge, h: hospice, u: unknown, o: other')
+
+```
+
+### Diagnostic Information
+
+There were three variables for diagnostic information. Each had more than 700 levels. Per Table 2 of  [Impact of HbA1c Measurement on Hospital Readmission Rates: Analysis of 70,000 Clinical Database Patient Records](https://www.hindawi.com/journals/bmri/2014/781670/tab2/), they are converted each into 9 categories.
+
+### diag_1
+
+```{r}
+
+# DIAGNOSTIC INFORMATION
+# Converting diag_1, diag_2, and diag_3 into 9 Categories, per Table 2
+# Ref: https://www.hindawi.com/journals/bmri/2014/781670/tab2/
+
+### diag_1
+
+cat('*** diag_1 with ', length(levels(data$diag_1)), ' levels\n')
+
+data$diag_1 <- as.character(data$diag_1)
+data$diag_1[grep(c('V'),data$diag_1)] <- '290'
+data$diag_1[grep(c('E'),data$diag_1)] <- '290'
+
+data$diag_1 <- as.numeric(data$diag_1)
+
+data$diag_1 <- factor(
+  ifelse( data$diag_1 %in% c(390:459,785),'Circulatory',
+  (ifelse(data$diag_1 %in% c(460:519,786),'Respiratory',
+  (ifelse(data$diag_1 %in% c(520:579,787),'Digestive',
+  (ifelse(floor(data$diag_1/250)==1,'Diabetes',
+  (ifelse(data$diag_1 %in% c(800:999),'Injury',
+  (ifelse(data$diag_1 %in% c(710:739),'Musculoskeletal',
+  (ifelse(data$diag_1 %in% c(580:629,788),'Genitourinary',
+  (ifelse(data$diag_1 %in%  c(140:239,780,781,784,790:799,240:249,251:279,680:709,782,001:139),'Neoplasms',
+  (ifelse(data$diag_1 %in% c(290:319,280:289,320:359,630:679,360:389,740:759),'Other',NA
+  ))))))))))))))))))
+
+l1 <- levels(data$diag_1)
+cat('*** diag_1 is now converted to ', length(l1), ' levels as the following: \n', l1)
+
+```
+
+### diag_2
+
+```{r}
+### diag_2
+
+cat('*** diag_2 with ', length(levels(data$diag_2)), ' levels\n')
+
+data$diag_2 <- as.character(data$diag_2)
+data$diag_2[grep(c('V'),data$diag_2)] <- '290'
+data$diag_2[grep(c('E'),data$diag_2)] <- '290'
+
+data$diag_2 <- as.numeric(data$diag_2)
+
+data$diag_2 <- factor(
+  ifelse( data$diag_2 %in% c(390:459,785),'Circulatory',
+  (ifelse(data$diag_2 %in% c(460:519,786),'Respiratory',
+  (ifelse(data$diag_2 %in% c(520:579,787),'Digestive',
+  (ifelse(floor(data$diag_2/250)==1,'Diabetes',
+  (ifelse(data$diag_2 %in% c(800:999),'Injury',
+  (ifelse(data$diag_2 %in% c(710:739),'Musculoskeletal',
+  (ifelse(data$diag_2 %in% c(580:629,788),'Genitourinary',
+  (ifelse(data$diag_2 %in%  c(140:239,780,781,784,790:799,240:249,251:279,680:709,782,001:139),'Neoplasms',
+  (ifelse(data$diag_2 %in% c(290:319,280:289,320:359,630:679,360:389,740:759),'Other',NA
+  ))))))))))))))))))
+
+l2 <- levels(data$diag_2)
+cat('*** diag_2 is now converted to ', length(l2), ' levels as the following:\n', l2)
+
+```
+
+### diag_3
+
+```{r}
+
+cat('*** diag_3 with ', length(levels(data$diag_3)), ' levels')
+
+data$diag_3 <- as.character(data$diag_3)
+data$diag_3[grep(c('V'),data$diag_3)] <- '290'
+data$diag_3[grep(c('E'),data$diag_3)] <- '290'
+
+data$diag_3 <- as.numeric(data$diag_3)
+
+data$diag_3 <- factor(
+  ifelse( data$diag_3 %in% c(390:459,785),'Circulatory',
+  (ifelse(data$diag_3 %in% c(460:519,786),'Respiratory',
+  (ifelse(data$diag_3 %in% c(520:579,787),'Digestive',
+  (ifelse(floor(data$diag_3/250)==1,'Diabetes',
+  (ifelse(data$diag_3 %in% c(800:999),'Injury',
+  (ifelse(data$diag_3 %in% c(710:739),'Musculoskeletal',
+  (ifelse(data$diag_3 %in% c(580:629,788),'Genitourinary',
+  (ifelse(data$diag_3 %in%  c(140:239,780,781,784,790:799,240:249,251:279,680:709,782,001:139),'Neoplasms',
+  (ifelse(data$diag_3 %in% c(290:319,280:289,320:359,630:679,360:389,740:759),'Other',NA
+  ))))))))))))))))))
+
+l3 <- levels(data$diag_3)
+cat('*** diag_3 is now converted to ', length(l3), ' levels as the following: \n', l3)
+
+```
+
+### Response Variable
+
+- The response variable, readmitted, originally had three levels: <30, >30, and NO. 
+- For classification, converted to 2 levels, no and yes, then to numeric, 0 and 1, respectively.
+
+```{r}
+
+### Response Variable
+
+# Reduced to 2 levels for classification and converted to numeric 0 and 1
+#data$readmitted[15000:15005]
+cat('"readmitted" levels: ', levels(data$readmitted))
+data$readmitted <- as.numeric(factor(ifelse(data$readmitted=='<30','yes','no')))-1
+#data$readmitted[15000:15005]
+cat('"readmitted" is now a ',class(data$readmitted),
+    ' with unique values: ', unique(data$readmitted))
+
+cat('At this time, the dataset has ',nrow(data),' observations with ', ncol(data),' variables.')
+
+```
+
+## Data Types
+
+For convenience, here separated variables based on the data types, i.e. factor, numeric, and integer.
+
+```{r}
+#------------------------------------
+# Show variabels based on data types
+#------------------------------------
+var <- sapply(names(data), function(x){ class(data[[x]]) })
+data.type <- lapply(unique(var), function(x){names(var[var==x])})
+names(data.type) <- unique(var)
+
+data.type
+
+summary(data.type)[,1]
+cat('Total ',(total <- sum(as.integer(summary(data.type)[,1]))),' variables')
+
+summary(data[data.type$integer])
+```
+
+## Numeric Variables
+
+All numeric variables were centered and normalized. The correlation plot showed two on 0.4-level, while overall considered acceptable. While examining the correlation coefficients and considering the general healthcare practices, it is logical to assume that the more procedures are performed, the more medications likely used and the longer observation and recovery time required. For an advanced modeling, may consider the interactions among the four variables:
+
+- time_in_hospital
+- num_lab_procedures
+- num_medications
+- num_procedures
+
+There was no interactions modeled here nevertheless.
+
+```{r}
+
+#-------------------
+# NUMERIC VARIABLES
+#-------------------
+
+data.type$integer
+
+notUsed <- function(){
+# Number of outliers
+outliers <- function(x,n){
+  row <- sum( x > n*IQR(x) )
+  percentage <- round( row*100/length(x) , 2)
+  rbind(row,percentage)
+}
+
+cat('Outliers as > ', (numIQR <- 3) ,
+    'x IQR with rows and percentage of a variable')
+sapply(data.type$integer, function(x){outliers(data[,x],numIQR)})
+
+cat('Outliers as > ', (numIQR <- 4) ,
+    'x IQR with rows and percentage of a variable')
+sapply(data.type$integer, function(x){outliers(data[,x],numIQR)})
+
+cat('Removing outliers with values > ',3,' x IQR')
+for (i in data.type$integer){
+  data <- data[ data[,i] <= 3*IQR( data[,i] ), ]
+}
+
+cat('Removing outliers in number_emergency and number_outpatient',
+    '\nfor those with values > 40 and > 29, respectively')
+data <- data[ data[,'number_emergency'] < 40, ]
+data <- data[ data[,'number_outpatient'] < 29, ]
+}
+```
+
+## Centering and Normalization
+
+```{r}
+## Centering & Normalization
+cat('Centering and normalizing the ',length(data.type$integer),'integer variables')
+data[data.type$integer] <- scale(data[data.type$integer])
+head(data[data.type$integer])
+summary(data[data.type$integer])
+
+```
+
+## Visualization
+
+Overall, nothing immediately raised a concern. There were however a few outliers of number_outpatient, number_inpatient, and number_emergency. Examined with boxplots (not shown here) these outliers were with relatively extreme values compared with other observations of the variable.
+
+```{r}
+#---------------
+# VISUALIZATION
+#---------------
+
+if(demo){
+  
+  img = readImage('demo/capstone.numeric.vars.hist.keeper.jpeg')
+  display(img, method = "raster")
+  
+  img = readImage('demo/capstone.pairs.panels.70k.keeper.jpeg')
+  display(img, method = "raster")
+
+}
+
+if(!demo){
+    
+    par(mfrow=c(ceiling(length(data.type$integer)/3),3), mar=c(3,2,3,2))
+    sapply(data.type$integer,function(x){
+      hist(data[,x],las=1,col='lightblue',main=x,xlab='',ylab='')})
+    par(mfrow=c(1,1))
+    
+    pairs.panels(data[data.type$integer],las=3, pch=23, hist.col='lightblue',
+             cex.cor=4,stars=TRUE,lm=TRUE)
+
+}
+
+```
+
+## Outliers
+
+Further looking in the dataset, those variable with extreme values were spread among a handful observations. And for these variables: 
+
+- number_outpatient
+- number_inpatient
+- number_emergency
+
+were with a mean value very close to zero, removing a few outliers resulted in zeroing all summary statistics, which caused some computation issues in subsequent processing. Consequently, the few outliers were kept as they were.
+
+```{r}
+
+summary(data[c(data.type$integer)])
+
+```
+
+## Multicollinearity
+
+The corrplot reported the following pairs with the coefficient above 0.4 level.
+
+- time_in_hospital and num_medications
+- num_procedures and num_medications
+
+```{r}
+
+cor(round(data[c(data.type$integer)],2))
+
+if(demo){
+  img = readImage('demo/capstone.corrplot.70k.keeper.jpeg')
+  display(img, method = "raster")  
+}
+
+if(!demo){
+    corrplot.mixed(cor(data[data.type$integer]),outline=FALSE)
+}
+```
+
+This seemed logical since the longer a patient stayed, the more medications one likely to had.  Similarly, the more medications a doctor had subscribed for a patient, the longer the patient was likely to stay in the hospital. Modeling the interactions is something to be considered. In this project, due to the very limit computation resources and time constraint, the interactions were not included in the modeling.
+
+## Imputation of Data
+
+- The missing values were largely of these variables including age, diag_1, diag_2 and diag_3. Considering the information was essential and less likely not provided or never developed. The decision was to impute values with criteria based on the dataset. 
+- Used the package, [Multivariate Imputation by Chained Equations(mice)](https://cran.r-project.org/web/packages/mice/index.html), to impute values based on existing data as shown in the following stripplot.
+
+```{r}
+#------------
+# IMPUTATION
+#------------
+# The missing values were in age, diag_1, diag_2 and diag_2
+# ref: https://www.r-bloggers.com/imputing-missing-data-with-r-mice-package/
+#library(mice)
+
+cat(sum(is.na(data[,data.type$integer])),
+    ' missing values of all numeric variables\n')
+cat(sum(is.na(data[,data.type$factor])),
+    ' missing values of all factor variables')
+
+if(demo){
+  
+  img = readImage('demo/capstone.imp.stripplot.keeper.jpeg')
+  display(img, method = "raster") 
+
+}
+
+if(!demo){
+  
+  imp <- mice(data,m=1,method='cart',maxit=3,seed=111)
+  dataimp <- complete(imp,1);write.csv(dataimp,'data/capstone.dataimp.csv')
+
+  # This can takes more than an hour.
+  #stripplot(imp, las=1, cex=0.5,pch=23, col='lightblue', main='Imputation')
+  
+}
+
+```
+
+## Features Selection
+
+To facilitate feature selection, employed another tool.
+
+A forest spirit in the Slavic mythology, [Boruta](https://ipfs.io/ipfs/QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco/wiki/Boruta_(mythology).html) (also called Leśny or Lešny) was portrayed as an imposing figure, with horns over the head, surrounded by packs of wolves and bears. In R, Boruta is a helpful package for facilitating a feature selection process.
+
+### Splitting Data
+
+The dataset was then partition into a 70/30 split for training and testing. The training part was also used for Boruta to confirm features subsequently.
+
+```{r}
+#---------------
+# SPLITING DATA
+#---------------
+dataimp <- read.csv('data/capstone.dataimp.csv')
+part <- sample(2,nrow(dataimp),replace=TRUE,prob=c(0.7,0.3))
+
+train <- dataimp[part==1,]; write.csv(train, 'data/capstone.train.csv')
+test  <- dataimp[part==2,]; write.csv(test,  'data/capstone.test.csv' )
+
+```
+
+### Oh, Boruta
+
+By default, Boruta uses Random Forest. The method performs a top-down search for relevant features by comparing original attributes’ importance with importance achievable at random, estimated using their permuted copies, and progressively eliminating irrelevant features to stabilize that test.
+
+Sample [code](https://yungchou.wordpress.com/2018/11/19/feature-selection-with-help-from-boruta/) to run Boruta is available.
+
+A successful Boruta run resulted in a set of features confirmed as important, tentative and unimportant, as applicable. During a run, Boruta sets up shadow variables to model each individual variable as a predictor and determine the importance. These shadow variables were referenced as the maximum and the minimum values for confirming or denying variables. Those tested as predictors with performance greater than the maximum were confirmed, smaller than the minimum denied. Unresolved variables, as applicable, were consider tentative. 
+
+- Considering Boruta's output, implemented feature selection.
+
+```{r}
+#-------------------
+# FEATURE SELECTION
+#-------------------
+if (!require('Boruta')) install.packages('Boruta'); library(Boruta)
+
+if(demo){
+  #if (!require('EBImage')) install.packages("BiocManager");BiocManager::install("EBImage");library(EBImage)
+  
+  boruta.fix <- readRDS('demo/capstone.boruta100.fix.rds')
+  #str(boruta.fix)
+  
+  #attStats(boruta.fix)  
+  
+  print(
+    boruta.selected <- getSelectedAttributes(boruta.fix, withTentative = FALSE)
+    )
+  
+  img = readImage('demo/capstone.boruta.run.100.keeper.jpeg')
+  display(img, method = "raster") 
+  
+}
+
+if(!demo){
+  
+  boruta.input <- read.csv('data/capstone.train.csv', header=TRUE)[-c(1,2)]
+  # Removed the id field generated by previous imports.
+  
+  set.seed(5-1)
+  boruta.output <- Boruta(readmitted~., data=boruta.input, doTrace=2, maxRuns=100)
+  
+  saveRDS(boruta.output, 'capstone.boruta100.output.rds')
+  print(boruta.output)
+  
+  boruta.fix <- TentativeRoughFix(boruta.output)
+  saveRDS(boruta.output, 'capstone.boruta100.fix.rds')
+  str(boruta.fix)
+  
+  #attStats(boruta.fix)  
+  
+  print(
+    boruta.selected <- getSelectedAttributes(boruta.fix, withTentative = FALSE)
+    ); write.file(boruta.selected,'data/capstone.boruta100.txt')  
+  
+  plot(boruta.output, las=2, cex.axis=0.7, xlab='', main='Feature Importance')
+  
+  dataimp.boruta <- read.csv('data/capstone.dataimp.csv')[c(boruta.selected,'readmitted')]
+  write.csv(dataimp.boruta,'data/dataimp.boruta.csv') # This is the prepared data for modeling.
+  
+}
+
+```
+
+## Finalizing Dataset
+
+Finally stored the prepared dataset ready for importing into a Machine Learning algorithm.
+
+```{r}
+
+if(demo){
+  
+  dib <-read.csv('demo/dataimp.boruta.keeper.csv')[-1]
+  str(dib)
+  summary(dib)
+  
+}
+
+if(!demo){
+  
+  # Finalized data set
+  dib <-read.csv('data/dataimp.boruta.csv')[-1]
+  str(dib)
+  summary(dib)  
+  
+}
+
+```
