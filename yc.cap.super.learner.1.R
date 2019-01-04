@@ -1,7 +1,6 @@
 if (!require('caret'  )) install.packages('caret'  ); library(caret  )
 #if (!require('mlbench')) install.packages('mlbench'); library(mlbench)
 if (!require('ranger' )) install.packages('ranger' ); library(ranger )
-if (!require('DMwR'   )) install.packages('DMwR'   ); library(DMwR   )
 if (!require('SuperLearner')) install.packages('SuperLearner'); library(SuperLearner)
 if (!require('ggplot2')) install.packages('ggplot2'); library(ggplot2)
 if (!require('kernlab')) install.packages('kernlab'); library(kernlab)
@@ -19,13 +18,15 @@ if (!require('RcppArmadillo')) install.packages('RcppArmadillo'); library(RcppAr
 #------------------
 df <- read.csv('data/capstone.dataimp.csv') # data set with Boruta selected fetures
 df <- df[-1]
-str(df)
+
 #df.smote <- SMOTE(readmitted~., df, perc.over=10, perc.under=1100)
 
 set.seed(0-0)
 
 df$readmitted <- as.factor(df$readmitted)
 table(df$readmitted)
+
+if (!require('DMwR')) install.packages('DMwR'); library(DMwR)
 df.smote <- SMOTE(readmitted~., df, perc.over=100, perc.under=220)
 table(df.smote$readmitted)
 
@@ -34,7 +35,7 @@ plot(df['readmitted'],las=1,col='lightblue',xlab='df$readmitted',main='Original'
 plot(df.smote['readmitted'],las=1,col='lightgreen',xlab='df.smote$readmitted',main='SMOTE')
 par(mfrow=c(1,1))
 
-#df.smote$readmitted <- ifelse(df.smote$readmitted=='yes',1,0)
+# When converted from factor to numberic, '0' and '1' become '1' and '2'.
 df.smote$readmitted <- as.numeric(factor(df.smote$readmitted))-1
 tail(df.smote$readmitted)
 
@@ -44,13 +45,13 @@ train <- df.smote[part==1,]
 test  <- df.smote[part==2,]
 
 names(train) # Check the index of 'readmitted'
-x.train <- train[,-22]
-y.train <- train[, 22]
+x.train <- train[,-27]
+y.train <- train[, 27]
 
 names(x.train)
 
-x.test  <- test[,-22]
-y.test  <- test[, 22]
+x.test  <- test[,-27]
+y.test  <- test[, 27]
 
 names(x.test)
 
@@ -62,15 +63,6 @@ names(x.test)
 # low or zero coefficients or compatibility issues in previous test runs.
 
 set.seed(1-1)
-ensem <-  SuperLearner( Y=y.train, X=x.train,
-                        family='binomial', verbose=TRUE,
-                        SL.library=c( #'SL.kernelKnn','SL.nnet',
-                          'SL.gbm','SL.xgboost',#'SL.glmnet',
-                          #'SL.ipredbagg','SL.ksvm',
-                          'SL.ranger'
-                          ))
-
-ensem; saveRDS('ensem','capstone.ensem.rds')
 
 ensem.cv <-  CV.SuperLearner( Y=y.train, X=x.train,
                            family='binomial', verbose=TRUE, V=5,
