@@ -28,7 +28,7 @@ y.train <- train[, 27]
 x.test  <- test[,-27]
 y.test  <- test[, 27]
 
-SL.xgboot.custom <- create.SL.xgboost(
+SL.xgboost.custom <- create.SL.xgboost(
   tune = list(ntrees = c(300, 500), max_depth = c(4),
               shrinkage =c(0.1), minobspernode = c(10)),
   detailed_names = TRUE, env = .GlobalEnv,name_prefix = "xgb")
