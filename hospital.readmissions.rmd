@@ -1,0 +1,111 @@
+---
+title: "Predicting Hospital Readmissions with Ensemble Learning"
+author: "yung chou"
+date: "January 7, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE)
+
+if (!require('SuperLearner')) install.packages('SuperLearner'); library(SuperLearner)
+
+set.seed(0-0)
+
+```
+
+Continuing form [Data Preparation of Diabetes Dataset for Machine Learning](https://yungchou.wordpress.com/2018/12/12/data-preparation-of-diabetes-dataset-for-machine-learning/), the next was to develop a Machine Learning model for predicting the readmissions. The features were selected based on the output from Boruta after a series of data preparation operations including data conversion and consolidation, imputation of data for missing values, etc. as detailed in the post.
+
+## Data set
+
+At this time, the data set imported here had the following structure:
+
+```{r}
+df <- read.csv('data/capstone.dataimp.csv') # data set with Boruta selected fetures
+df <- df[-1]
+
+str(df)
+```
+
+## Overview
+
+I used SuperLearner to construct an ensemble learning model with Ranger and Xgboostalgorithms. The whole process took quite a few weeks to develop, due to the immense computing capacity needed to run the model to get results in hours and not days. I used my a bit outdated laptop, an i7-3520M with 16 GB RAM, to flush out incompability, instability and operational issues by using a relative small amount of data, a few hundred observations, to save time. And relied much on [Microsoft Azure](https://azure.microsoft.com/en-us/services/virtual-machines/), or cloud computing, for allocating sizable virtual machines with 8 vcpus and 64 GB RAM or above to test stablized models and parameter tuning.
+
+```{r echo=FALSE, fig.cap="", out.width = '75%', fig.align='center'}
+knitr::include_graphics('img/cap1.jpg')
+
+```
+
+## SMOTE
+
+The original dataset had highly unbalanced distribution of the lable data which contained ??? zeros (not readmitted) and ??? ones (readmitted). Such highly unbalanced data would likely lead to highly biased prdicitons since when during training, the model would mostly learn to classify zeros and know little about how to predict ones.
+
+To address this isssue, I used [SMOTE](https://www.rdocumentation.org/packages/DMwR/versions/0.4.1/topics/SMOTE) to generate a new "SMOTEd" dataset that addresses the class unbalance problem. The following demonstrated a sceanrio for generating a balanced dataset with about 5,000 observations based on 10,000 observations sampled from the original data set. 
+
+```{r out.width='50%'}
+set.seed(0-0)
+# use 500 observations for developing the model
+df <- df[1:10000,]
+
+do.smote <- TRUE
+
+#if(do.smote) {
+
+  df$readmitted <- as.factor(df$readmitted)
+  table(df$readmitted)
+
+  if (!require('DMwR')) install.packages('DMwR'); library(DMwR)
+  df.smote <- SMOTE(readmitted~., df, perc.over=100, perc.under=220)
+  table(df.smote$readmitted)
+
+  par(mfrow=c(1,2),mar=c(5,5,5,5)) 
+  plot(df['readmitted'],las=1,col='lightblue',xlab='df$readmitted',main='Original')
+  plot(df.smote['readmitted'],las=1,col='lightgreen',xlab='df.smote$readmitted',main='SMOTE')
+  par(mfrow=c(1,1),mar=c(1,1,1,1))
+
+```
+
+## SuperLearner
+
+For constructing an ensemble model, [SuperLearner](https://cran.r-project.org/web/packages/SuperLearner/index.html) provides a user-friendly framework which was what I had used for developing ensemble models. Here's a [tutorial](https://cran.r-project.org/web/packages/SuperLearner/vignettes/Guide-to-SuperLearner.html) to get started. SuperLearned simplifies the mechanics for constructing, orchestrating and evaluating an ensemble model. Which however does not substitute the need for understanding individual algorithms, the associated hyperparameters and default settings.
+
+The packages of those algorithms included in an ensemble model will need to be installed and required as libraries which SuperLearner references when envoking such algorithms.
+
+### Algorithms
+
+Since this is a classifiction problem, a patiention would be either readmitted or not to a hospital, I first tested a few algorithms, individually and in ensemble models, like [RandomForest](https://www.rdocumentation.org/packages/randomForest/versions/4.6-14/topics/randomForest), [Gradient Boosting](https://www.rdocumentation.org/packages/gbm/versions/2.1.4/topics/gbm) and [Elastic Net](https://www.rdocumentation.org/packages/glmnet/versions/2.0-16) all with default settings set by the related package. This was to quickly identify if operability and compatibility issue among the chosen algorithms when forming an ensemble model. In the early stage of ensembling a model, I identified and removed algorithms with low stability and performance, i.e. resulted with high risk measures, or consistently with coefficients assigned with zeros. And eventually I chose the two most stable and best performed algorithms, Ranger and Xgboost, for constructing an ensemble model.
+
+### Ensemble Learning
+
+The intent was to partition the data into training and testing sets for developing and evaluating a developed Machein Learning model. For a complex problem like this, minimizing biases and variance introduced by multilinearity would be a challenge. And employing ensemble learning to complement some algorithms' weakness with the others' strength by evaluating, weighting, and combining their results seemed a right strategy and very logical approach. The following illustrated the concept of ensemble learning and additional informaiton is available.
+
+![Source: [DataSciencce Blog](https://data-science-blog.com/blog/2017/12/03/ensemble-learning/)](img/ensemble-learning-concept.png)
+
+### Configurations and Tuning Parameters
+
+Due to the computation and complexity of the ensemble model and the amount of data in the diabete dataset, a test run with about 5,000 observations could take 10 hours with a parallel processing configuration on 3 vcpus of an Intel i7-3520M laptop with 16 GB RAM. Prior to an hours-long test runs, I would document and conduct many small tests with just a few hundred observations to smooth out the operations and verify if a configuration would generate what I needed and produce output properly. 
+
+The process was highly iterative and I spent most of the development time implementing changes to the model, plotting the results, examining the output, making adjustments accordingly, etc. back and forth throughout the development to ensure operability and integrity the model with available computing capacity. Eventually, the process gravitated to a set of configurations and associated parameters to from the model generated the outeput presneted in this article. While not necessarily in the exact order, here I highlight the development process with the following steps which follow after having prepared data for modeling:
+
+- Creating a better-balanced data distribution of the label, as applicable
+- Partitioning data for training and testing
+- Building and deriving a set configuration for generating outputs
+- Stablizing the configuration, tuning and improving the model
+
+[Ensemble Learning](https://www.analyticsvidhya.com/blog/2015/08/introduction-ensemble-learning/) is an important vehicle for achieving and improving results for problems with considerable variables and complex correlation such that the effects of [bias and variance trade-off](https://data-science-blog.com/blog/2017/12/03/ensemble-learning/) may not be evident. While oversimplifying the approach, an ensemble learning is to employ, evaluate, and compose results from multiple learners operating on the same data set to make better predictions than those derived from each and a single algorithm individually.
+
+In this project, I used Ranger and xgboost with hyperparameters to form an ensemble learning model. [Ranger](https://cran.r-project.org/web/packages/ranger/index.html) is an implementation of Random Forests, particularly suited for high
+dimensional data. At the same time, [xgboost](https://cran.r-project.org/web/packages/xgboost/index.html) (or Extreme Gradient Boosting) enhances gradient boosting and supports parallel processing. Both are solid algorithms for regression and classification problems. Inerestingly, both algorithms themselves also use ensemble learning.
+
+Below is a compilation of the ensembles genereated by the aforementioned cutom learners, ranger.custom and xgboost.custom, and their associated errors or risks reported for a test run. The name indicated the algorithm and the configured hyperparameters. For instance, ranger_500_2_All denoted Ranger with num.trees=500 and mtry=2 where 'All' revealed that all features were included, i.e. without screening features for correlation. And xgboost_1000_3_0.01_10_All was xgboost algorithm with ntrees=1000, max_depth=3, shrinkage=0.01 and minobspernode=10. All applicable ensembles were processed through 10-fold cross validation which is the SuperLearner default and configurable.
+
+```{r echo=FALSE, fig.cap="", out.width = '75%', fig.align='center'}
+knitr::include_graphics('img/ensembles.jpg')
+
+```
+
+
+```{r}
+
+```
+
